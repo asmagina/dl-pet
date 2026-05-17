@@ -1,0 +1,5 @@
+torch>=2.0
+torchvision>=0.15
+pyyaml>=6.0
+tqdm>=4.0
+kagglehub>=0.2
