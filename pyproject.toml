@@ -5,15 +5,7 @@ requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0",
     "torchvision>=0.15",
-    "pyyaml>=6.0",
+    "albumentations>=1.4",
     "tqdm>=4.0",
     "kagglehub>=0.2",
 ]
-
-[build-system]
-requires = ["setuptools>=61"]
-build-backend = "setuptools.build_meta"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["dl_pet*"]
