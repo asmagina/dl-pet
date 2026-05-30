@@ -1,6 +1,8 @@
 import random
 from pathlib import Path
 
+from torch.utils.tensorboard import SummaryWriter
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -88,14 +90,24 @@ def main() -> None:
 
     train_root = Path(config.DATA_ROOT) / "train"
     val_root = Path(config.DATA_ROOT) / "train"
+    mask_dir = train_root.parent / "train_masks"
+
+    if not mask_dir.is_dir():
+        raise FileNotFoundError(
+            f"Missing {mask_dir}\n"
+            f"Training needs Carvana masks (*_mask.gif), not just images in {train_root}.\n"
+            f"Without masks the dataloader returns filenames and train.py crashes on targets.to(device)."
+        )
 
     train_loader = build_dataloader(
         train_root,
-        train=True
+        train=True,
+        require_masks=True,
     )
     val_loader = build_dataloader(
         val_root,
-        train=False
+        train=False,
+        require_masks=True,
     )
 
     model = UNet(3, 2).to(device)
@@ -108,6 +120,10 @@ def main() -> None:
 
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_acc = -1.0
+
+    log_dir = Path(config.LOG_DIR)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    writer = SummaryWriter(log_dir=log_dir)
 
     for epoch in range(1, config.NUM_EPOCHS + 1):
         print(f"epoch {epoch}/{config.NUM_EPOCHS}")
@@ -136,6 +152,13 @@ def main() -> None:
                 },
                 checkpoint_dir / "best.pt",
             )
+
+        writer.add_scalar("loss/train", train_metrics["loss"], epoch)
+        writer.add_scalar("loss/val", val_metrics["loss"], epoch)
+        writer.add_scalar("acc/train", train_metrics["acc"], epoch)
+        writer.add_scalar("acc/val", val_metrics["acc"], epoch)
+
+    writer.close()
 
 
 if __name__ == "__main__":

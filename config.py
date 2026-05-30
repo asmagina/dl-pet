@@ -1,4 +1,4 @@
-DATA_ROOT = "/home/ptf/dl-pet-data/carvana"
+DATA_ROOT = "/root/data"
 # CATEGORY = "bottle"
 IMAGE_SIZE = (640, 959)
 BATCH_SIZE = 1
@@ -16,3 +16,5 @@ BEST_CKPT = "models/unet_carvana_scale0.5_epoch2.pth"  # "runs/checkpoints/best.
 # Test only: use None to evaluate the full test split.
 TEST_START_INDEX = None
 TEST_STOP_INDEX = None
+
+LOG_DIR = "runs/tensorboard"

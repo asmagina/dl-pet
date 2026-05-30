@@ -2,6 +2,7 @@ from pathlib import Path
 from PIL import Image
 import albumentations as A
 import numpy as np
+import torch
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader, Dataset
 import config
@@ -49,7 +50,10 @@ class CarvanaSegmentationDataset(Dataset):
         mask = (mask > 0).astype(np.uint8)
 
         out = self.transform(image=image, mask=mask)
-        return out["image"], out["mask"].long()
+        mask = torch.as_tensor(out["mask"], dtype=torch.long)
+        if mask.ndim == 3 and mask.shape[0] == 1:
+            mask = mask.squeeze(0)
+        return out["image"], mask
 
 
 class CarvanaTestDataset(Dataset):
@@ -69,12 +73,22 @@ class CarvanaTestDataset(Dataset):
 
 def build_dataloader(
     root: str | Path,
-    train: bool
+    train: bool,
+    *,
+    require_masks: bool = False,
 ) -> DataLoader:
     transform = train_transform if train else eval_transform
     root = Path(root)
     mask_dir = root.parent / "train_masks"
-    if mask_dir.exists() and root.name == "train":
+    has_masks = mask_dir.exists() and root.name == "train"
+
+    if require_masks and not has_masks:
+        raise FileNotFoundError(
+            f"Training requires masks at {mask_dir}, but that directory was not found. "
+            f"Expected Carvana layout: {root.parent}/train and {mask_dir}."
+        )
+
+    if has_masks:
         dataset = CarvanaSegmentationDataset(root, mask_dir, transform)
     else:
         dataset = CarvanaTestDataset(root, transform)

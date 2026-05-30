@@ -1,152 +1,261 @@
 #flashcards/dl-pet
 
-Лайв-кодинг на собесе ≈ **один `train.py`**: константы/argparse сверху, 2–3 функции, `if __name__`. Пакет `dl_pet/` — для своего репо, не для доски.
-
-**Ментальная модель:** Config (строки вверху) → DataLoader → Model → `train_epoch` / `eval_epoch` → цикл `for epoch`.
+Текущая структура проекта минимальная и близкая к лайв-кодингу: без yaml, без argparse, без `loops.py`.
 
 ---
 
-## Один файл: что на доске
+## Структура Текущего Кода
 
-Минимальный `train.py` — что объявить сверху вниз (6 блоков):::
-imports
-константы или argparse (DATA_ROOT, BATCH, LR, EPOCHS, DEVICE)
-Dataset/transforms + DataLoader (train, val)
-class Model(nn.Module)
-def train_epoch(...)
-def eval_epoch(...)
-if __name__ == "__main__": main()
+Какие основные файлы в нужны по-минимуму?:::
+`config.py` — константы  
+`dataloader.py` — transforms, Dataset, DataLoader  
+`model.py` — CNN  
+`train.py` — train/eval loop + обучение  
+`test.py` — загрузка checkpoint + eval на test
 
-Сколько файлов на лайв-кодинге в 90% случаев?:::
-1 (`train.py`); иногда 2 если модель большая (`model.py` + `train.py`)
+Главная ментальная цепочка проекта:::
+`config` → `dataloader` → `model` → `train_epoch` / `eval_epoch` → checkpoint → `test.py`
 
-Когда на собесе всё-таки дробят?:::
-после того как скрипт работает; или если интервьюер дал заготовку с пакетом; не с нуля ради архитектуры
-
-Наш `dl_pet/` с yaml — это что?:::
-прод/пет-проект; на доске то же самое, но сжато в один файл
+Что важно не забыть, если переименовываешь класс модели?:::
+Имя класса в `model.py` должно совпадать с импортами в `train.py` и `test.py`.
 
 ---
 
-## Константы / argparse (вместо yaml)
+## config.py
 
-Типичные константы вверху `train.py` (6):::
-DATA_ROOT, BATCH_SIZE, NUM_EPOCHS, LR, DEVICE, maybe IMAGE_SIZE
+Что лежит в `config.py`?:::
+пути, категория датасета, размер картинки, batch size, workers, epochs, lr, weight decay, seed, checkpoint paths, test range
 
-Строка DEVICE одной строкой:::
-`device = torch.device("cuda" if torch.cuda.is_available() else "cpu")`
+Константы данных в `config.py`:::
+`DATA_ROOT`, `CATEGORY`, `IMAGE_SIZE`, `BATCH_SIZE`, `NUM_WORKERS`
 
-argparse: что спросят чаще констант?:::
-`--data-root`, `--epochs`, `--lr`, `--batch-size` — опционально, константы быстрее на 45 мин
+Константы обучения в `config.py`:::
+`NUM_EPOCHS`, `LR`, `WEIGHT_DECAY`, `SEED`
 
-Забыл вынести lr/epochs вверх — не страшно?:::
-да; главное — правильный train/eval loop, не структура папок
+Константы checkpoint в `config.py`:::
+`CHECKPOINT_DIR`, `BEST_CKPT`
 
----
-
-## Data (в том же файле)
-
-ImageFolder + DataLoader — 4 строки логики:::
-transforms = Compose([Resize, ToTensor, Normalize(...)])
-train_ds = ImageFolder(train_root, transform=transforms)
-train_loader = DataLoader(train_ds, batch_size=BATCH, shuffle=True, pin_memory=True)
-
-Train loader vs val loader — два отличия:::
-shuffle=True только train; val shuffle=False
-
-Аугментация только на train — пример одной строки:::
-`RandomHorizontalFlip()` в Compose train, не в val
-
-`pin_memory=True` — зачом на собесе одной фразой?:::
-быстрее копировать батч на GPU с CPU
-
-`num_workers` на доске:::
-часто `0` или `2` — чтобы не утонуть в multiprocessing на VM
-
----
-
-## Model (в том же файле)
-
-Минимальный `nn.Module` — что обязательно:::
-`__init__` слои, `forward(self, x)` return logits (без softmax под CrossEntropy)
-
-После conv блоков перед linear:::
-`x.flatten(1)` или `AdaptiveAvgPool2d` + flatten
-
-`model.to(device)` — где вызвать?:::
-один раз после создания, до цикла epoch
-
----
-
-## train_epoch — это главное
-
-Сигнатура на доске:::
-`def train_epoch(model, loader, criterion, optimizer, device):`
-
-Первая строка тела:::
-`model.train()`
-
-Один батч — порядок строк (7):::
-images, targets = images.to(device), targets.to(device)
-optimizer.zero_grad()
-logits = model(images)
-loss = criterion(logits, targets)
-loss.backward()
-optimizer.step()
-
-Что НЕ писать в train_epoch:::
-`torch.no_grad()`, `model.eval()`
-
-CrossEntropyLoss — что подаёшь в model?:::
-logits (сырой выход), не softmax
-
----
-
-## eval_epoch
-
-Сигнатура:::
-`def eval_epoch(model, loader, criterion, device):`
-
-Две строки до цикла for:::
-`model.eval()`
-весь цикл в `with torch.no_grad():` (или `@torch.no_grad()` на функции)
-
-Один батч eval — чего нет (3):::
-zero_grad, backward, optimizer.step
-
-Как посчитать accuracy за эпоху без класса AverageMeter:::
-сумма correct, сумма total по батчам; return correct/total
-
----
-
-## main() внизу файла
-
-Порядок в `main()` (7 шагов):::
-device
-loaders
-model, criterion, optimizer
-loop epochs: train_epoch → eval_epoch → print
-опционально torch.save state_dict лучшей модели
-
-Optimizer одной строкой:::
-`optimizer = torch.optim.Adam(model.parameters(), lr=LR)`
-
-Criterion для classification:::
-`nn.CrossEntropyLoss()`
-
-Сохранение «лучшей» модели — минимум:::
-```python
-if val_acc > best:
-    best = val_acc
-    torch.save(model.state_dict(), "best.pt")
 ```
 
-Загрузка для дообучения / eval-only:::
-`model.load_state_dict(torch.load("best.pt", map_location=device))`
+---
+
+## dataloader.py:  Transforms
+
+Какие две функции transforms есть сейчас?:::
+`train_transform(image_size)` и `eval_transform(image_size)`.
+
+Что есть в `train_transform`?:::
+`Resize`, `HorizontalFlip`, `RandomBrightnessContrast`, `Rotate`, `Normalize`, `ToTensorV2`.
+
+Что есть в `eval_transform`?:::
+`Resize`, `Normalize`, `ToTensorV2`.
+
+Почему train/eval transforms разные?:::
+Аугментации нужны только на train; eval должен быть стабильным и детерминированным.
+
+Что делает `A.Normalize()` без аргументов?:::
+Использует дефолтные ImageNet mean/std в Albumentations.
+
+Почему `ToTensorV2()` идёт после `A.Normalize()`?:::
+Albumentations работает с numpy image; `ToTensorV2` в конце превращает результат в PyTorch tensor.
+
+Horizontal flip в Albumentations — строка:::
+`A.HorizontalFlip(p=0.5)`
+
+Brightness/contrast в Albumentations — смысл:::
+Слегка меняет освещение/контраст, чтобы модель не переобучалась на один вид картинки.
+
+Rotate в train transform — зачем?:::
+Небольшая устойчивость к повороту; в текущем коде `limit=15`, `p=0.3`.
 
 ---
 
-## Cloze: следующая строка
+## dataloader.py: Dataset
+
+Зачем свой `ImageFolderAlbumentations`, если есть `ImageFolder`?:::
+`ImageFolder` отдаёт PIL image, а Albumentations ожидает numpy image с ключом `image`.
+
+Что хранит `ImageFolderAlbumentations.__init__`?:::
+`self._folder = ImageFolder(root=root, transform=None)` и `self.transform = transform`.
+
+Что делает `__len__` в dataset wrapper?:::
+Возвращает `len(self._folder)`.
+
+Порядок в `__getitem__`:::
+получить `image, label` из `ImageFolder` → `np.array(image)` → `self.transform(image=image)` → вернуть `out["image"], label`
+
+Почему transform вызывается как `self.transform(image=image)`?:::
+Такой API у Albumentations: вход и выход — dict, картинка лежит по ключу `"image"`.
+
+---
+
+## dataloader.py: DataLoader
+
+Сигнатура `build_dataloader` по смыслу:::
+`root`, `image_size`, `batch_size`, `num_workers`, `train`, `shuffle`, optional `start_index`, `stop_index`
+
+Как выбирается transform в `build_dataloader`?:::
+`train_transform(image_size) if train else eval_transform(image_size)`
+
+Зачем `shuffle=True` только на train?:::
+Чтобы батчи менялись между эпохами; eval/test должен быть стабильным.
+
+Зачем `Subset` в `build_dataloader`?:::
+Чтобы прогнать только диапазон изображений, например `[100, 200)`.
+
+Какой диапазон означает `start_index=10, stop_index=20`?:::
+Индексы `[10, 20)`: 10 включительно, 20 не включительно.
+
+Что делает код, если selected range пустой?:::
+Бросает `ValueError("selected image range is empty")`.
+
+`pin_memory=True` — коротко зачем?:::
+Ускоряет перенос CPU batch на GPU; не критично для лайв-кодинга.
+
+---
+
+## model.py
+
+Что должен содержать `model.py`?:::
+Один класс модели: `class SimpleCNN(nn.Module)` с `__init__` и `forward`.
+
+Минимальный контракт модели для `CrossEntropyLoss`:::
+`forward(x)` возвращает logits формы `[batch_size, num_classes]`, без softmax.
+
+Что делает `self.features` в модели?:::
+Извлекает признаки через conv/relu/pool блоки.
+
+Что делает `self.classifier`?:::
+Линейный слой из feature vector в `num_classes`.
+
+Зачем `AdaptiveAvgPool2d(1)`?:::
+Сжимает пространственные размеры до `1x1`, чтобы classifier не зависел от точного размера feature map.
+
+Что делает `x.flatten(1)`?:::
+Оставляет batch dimension и расплющивает все остальные измерения.
+
+Что должно совпадать между `model.py` и `train.py`?:::
+Имя импортируемого класса: если `train.py` пишет `from model import SimpleCNN`, в `model.py` должен быть `SimpleCNN`.
+
+---
+
+## train.py: Helpers
+
+Что делает `set_seed`?:::
+Ставит seed для `random`, `numpy`, `torch`, `torch.cuda`.
+
+Формула `accuracy(logits, targets)`:::
+`preds = logits.argmax(dim=1)` → сравнить с `targets` → `correct / batch_size`.
+
+Почему `argmax(dim=1)`?:::
+`dim=1` — измерение классов в logits `[batch, classes]`.
+
+---
+
+## train.py: train_epoch
+
+Сигнатура `train_epoch`:::
+`model, loader, criterion, optimizer, device -> dict[str, float]`
+
+Первая строка в `train_epoch`:::
+`model.train()`
+
+Порядок одного train batch:::
+`to(device)` → `zero_grad()` → `model(images)` → `criterion` → `backward()` → `optimizer.step()`
+
+Что обязательно перед `loss.backward()`?:::
+Посчитать `loss = criterion(logits, targets)`.
+
+Что обязательно перед `logits = model(images)`?:::
+Перенести `images` и `targets` на `device`, затем `optimizer.zero_grad()`.
+
+Почему `loss_sum += loss.item() * batch_n`, а не просто `loss_sum += loss.item()`?:::
+Чтобы средний loss был взвешен по числу примеров, особенно если последний batch меньше.
+
+Что возвращает `train_epoch`?:::
+`{"loss": loss_sum / n, "acc": acc_sum / n}`
+
+---
+
+## train.py: eval_epoch
+
+Декоратор `eval_epoch`:::
+`@torch.no_grad()`
+
+Первая строка в `eval_epoch`:::
+`model.eval()`
+
+Чего нет в eval batch?:::
+`optimizer.zero_grad()`, `loss.backward()`, `optimizer.step()`.
+
+Почему `@torch.no_grad()`?:::
+Не строить граф градиентов: быстрее и меньше памяти.
+
+Почему `model.eval()`?:::
+Dropout/BatchNorm переходят в inference mode.
+
+Что возвращает `eval_epoch`?:::
+Такой же dict метрик: `{"loss": ..., "acc": ...}`.
+
+---
+
+## train.py: main
+
+Порядок `main()` в `train.py`:::
+seed → device → paths → train/val loaders → model/loss/optimizer → checkpoint dir → loop epochs
+
+Строка выбора device:::
+`torch.device("cuda" if torch.cuda.is_available() else "cpu")`
+
+Откуда берутся train и val roots?:::
+`mvtec_split_root(config.DATA_ROOT, config.CATEGORY, "train")` и `"test"`.
+
+Как создаётся модель в `train.py`?:::
+`num_classes = len(train_loader.dataset.classes)` → `SimpleCNN(in_channels=3, num_classes=num_classes).to(device)`
+
+Criterion сейчас:::
+`nn.CrossEntropyLoss()`
+
+Optimizer сейчас:::
+`torch.optim.AdamW(model.parameters(), lr=config.LR, weight_decay=config.WEIGHT_DECAY)`
+
+Что происходит в epoch loop?:::
+`train_epoch` → `eval_epoch` → print metrics → save `last.pt` → если лучше, save `best.pt`.
+
+Что лежит в checkpoint dict?:::
+`epoch`, `model`, `optimizer`, `classes`.
+
+Когда сохраняется `best.pt`?:::
+Когда `val_metrics["acc"] > best_acc`.
+
+---
+
+## test.py
+
+Что делает `test.py`?:::
+Загружает test DataLoader, checkpoint, модель, потом вызывает `eval_epoch`.
+
+Почему `test.py` импортирует `eval_epoch` из `train.py`?:::
+Чтобы не дублировать eval loop в маленьком проекте.
+
+Какие config-поля использует `test.py` для диапазона картинок?:::
+`TEST_START_INDEX`, `TEST_STOP_INDEX`.
+
+Зачем `map_location=device` в `torch.load`?:::
+Чтобы checkpoint загрузился на текущий CPU/GPU device.
+
+Как определяется `num_classes` в `test.py`?:::
+`num_classes = len(ckpt["classes"])`.
+
+Что делает `model.load_state_dict(ckpt["model"])`?:::
+Загружает веса модели из checkpoint.
+
+Что печатает `test.py` перед eval?:::
+`start`, `stop`, `count` выбранных test images.
+
+---
+
+## Cloze: Следующая Строка
 
 #flashcards/dl-pet/cloze
 
@@ -156,27 +265,34 @@ if val_acc > best:
 После `loss.backward()`:::
 `optimizer.step()`
 
-Перед `logits = model(images)`:::
+Перед `logits = model(images)` в train batch:::
 `optimizer.zero_grad()`
 
-Перед циклом по val loader:::
+Перед циклом по train loader:::
+`model.train()`
+
+Перед циклом по eval loader:::
 `model.eval()`
 
-Внутри eval на батче, перед forward:::
-уже внутри `torch.no_grad()` контекста
+После `preds = logits.argmax(dim=1)` в accuracy:::
+`correct = (preds == targets).sum().item()`
+
+После `torch.load(config.BEST_CKPT, map_location=device, weights_only=False)` в test:::
+создать модель с нужным `num_classes`, затем `model.load_state_dict(ckpt["model"])`
 
 ---
 
-## Напиши с нуля (один файл)
+## Напиши С Нуля
 
 #flashcards/dl-pet/write
 
-Весь `train_epoch` без метрик:::
+Напиши минимальный `train_epoch`:::
 ```python
 def train_epoch(model, loader, criterion, optimizer, device):
     model.train()
     for images, targets in loader:
-        images, targets = images.to(device), targets.to(device)
+        images = images.to(device)
+        targets = targets.to(device)
         optimizer.zero_grad()
         logits = model(images)
         loss = criterion(logits, targets)
@@ -184,95 +300,103 @@ def train_epoch(model, loader, criterion, optimizer, device):
         optimizer.step()
 ```
 
-Весь `eval_epoch` с return acc:::
+Напиши минимальный `eval_epoch`:::
 ```python
+@torch.no_grad()
 def eval_epoch(model, loader, criterion, device):
     model.eval()
     correct, total = 0, 0
-    with torch.no_grad():
-        for images, targets in loader:
-            images, targets = images.to(device), targets.to(device)
-            logits = model(images)
-            preds = logits.argmax(1)
-            correct += (preds == targets).sum().item()
-            total += targets.size(0)
+    for images, targets in loader:
+        images = images.to(device)
+        targets = targets.to(device)
+        logits = model(images)
+        preds = logits.argmax(dim=1)
+        correct += (preds == targets).sum().item()
+        total += targets.size(0)
     return correct / total
 ```
 
-Скелет `main` — только цикл:::
+Напиши минимальный `train_transform` на Albumentations:::
 ```python
-for epoch in range(NUM_EPOCHS):
-    train_epoch(model, train_loader, criterion, optimizer, device)
-    acc = eval_epoch(model, val_loader, criterion, device)
-    print(epoch, acc)
+def train_transform(image_size):
+    return A.Compose([
+        A.Resize(image_size, image_size),
+        A.HorizontalFlip(p=0.5),
+        A.Normalize(),
+        ToTensorV2(),
+    ])
 ```
 
-Минимальный `DataLoader` блок:::
+Напиши минимальный `eval_transform` на Albumentations:::
 ```python
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-])
-train_loader = DataLoader(
-    ImageFolder("data/train", transform=transform),
-    batch_size=32,
-    shuffle=True,
-)
+def eval_transform(image_size):
+    return A.Compose([
+        A.Resize(image_size, image_size),
+        A.Normalize(),
+        ToTensorV2(),
+    ])
+```
+
+Напиши минимальный checkpoint save:::
+```python
+torch.save({
+    "epoch": epoch,
+    "model": model.state_dict(),
+    "optimizer": optimizer.state_dict(),
+    "classes": train_loader.dataset.classes,
+}, checkpoint_dir / "last.pt")
 ```
 
 ---
 
-## Когда спросят «как в проекте» (не пиши с нуля)
-
-Интервьюер: «вынеси в функции/модули» — минимальное дробление (3 части):::
-`train.py` — main + epoch loops
-`data.py` — get_loaders()  (опционально)
-`model.py` — class Net
-
-Зачем в репо отдельный yaml, если на собесе не надо?:::
-эксперименты без правок кода; в лайве — константы/argparse достаточно
-
-`train_one_epoch` в пакете = что на доске?:::
-та же `train_epoch`, просто другое имя
-
----
-
-## Промахи (SW → DL)
+## Частые Ошибки
 
 #flashcards/dl-pet/mistakes
 
-Забыл `model.train()` / `eval()`:::
-Dropout/BatchNorm врут, val метрики фейк
+Забыла `model.train()` / `model.eval()`:::
+Dropout/BatchNorm работают не в том режиме; метрики могут быть неверными.
 
-Забыл `zero_grad`:::
-градиенты копятся между шагами
+Забыла `optimizer.zero_grad()`:::
+Градиенты копятся между batch steps.
 
-CE + softmax в forward:::
-лишнее; CE сама нормализует
+Добавила softmax перед `CrossEntropyLoss`:::
+Не надо: `CrossEntropyLoss` ждёт raw logits.
 
-targets не на device:::
-ошибка в criterion
+Забыла `targets.to(device)`:::
+Будет device mismatch в loss.
 
-`shuffle=False` на train:::
-хуже сходимость, не баг компиляции
+Поставила `shuffle=False` на train:::
+Обучение может стать хуже; train обычно shuffle.
+
+Поставила аугментации в eval transform:::
+Eval станет недетерминированным, метрики будут шуметь.
+
+Переименовала `SimpleCNN`, но не поменяла import:::
+`ImportError`: `train.py`/`test.py` не найдут класс.
 
 ---
 
-## Reverse (кусок кода → где в одном файле)
+## Reverse Cards
 
 #flashcards/dl-pet/reverse
 
-`optimizer.zero_grad()` внутри for по loader:::
-функция `train_epoch`
+`A.Normalize()` без аргументов:::
+Albumentations ImageNet normalization.
 
-`with torch.no_grad()`:::
-функция `eval_epoch`
+`Subset(dataset, indices)`:::
+Ограничение test/train dataset диапазоном индексов.
 
-`ImageFolder(..., transform=...)`:::
-блок data в `main` или над ним
+`torch.no_grad()`:::
+Eval/inference без графа градиентов.
 
-`torch.save(model.state_dict(), path)`:::
-цикл epoch в `main` после eval
+`logits.argmax(dim=1)`:::
+Получить predicted class index из logits.
 
-`argparse.ArgumentParser()`:::
-верх файла; на доске часто заменяют константами
+`AdaptiveAvgPool2d(1)`:::
+Сжать feature map до `1x1` перед linear classifier.
+
+`checkpoint_dir / "best.pt"`:::
+Файл лучшей модели по validation accuracy.
+
+`map_location=device`:::
+Загрузить checkpoint сразу на нужное устройство.
